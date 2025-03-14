@@ -6,5 +6,8 @@ class Messaging:
         ...
 
 class LayerZero(Messaging):
-    def lzReceive(self):
+    def lzReceive(self, message: bytes):
+        self._receive_message(message)
+
+    def _receive_message(self, message: bytes):
         ...

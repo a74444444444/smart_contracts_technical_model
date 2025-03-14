@@ -15,7 +15,7 @@ class BridgeAdapter:
         token.transfer("msg.sender", available)
 
 class AcrossBridgeAdapter(BridgeAdapter):
-    # Certain bridg e
+    # Certain bridge
     def handleV3AcrossMessage(self, token: str, amount: int, recipient: str, data: bytes):
         bridgeMessage = BridgeMessage.decode(data)
         self._receiveBridge(bridgeMessage.container, token, amount)

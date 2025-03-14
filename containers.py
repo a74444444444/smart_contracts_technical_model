@@ -1,8 +1,9 @@
-from datastructures import SwapInstruction, BridgeInstruction, ERC20
-from models import WithdrawalMessage, DepositCallbackMessage
+from datastructures import SwapInstruction, BridgeInstruction, ERC20, DepositConfirmation, Address, WithdrawalResponse, \
+    WithdrawalRequest
 from swap_router import SwapRouter
 from bridge_adapters import BridgeAdapter, BridgeSupport
-from messaging import Messaging
+from messaging import Messaging, Message
+from vault import Vault
 
 class Logic:
     def enter(self, tokens: list[ERC20], amounts: list[int]) -> int:
@@ -83,6 +84,9 @@ class ExecutionSupport:
 
 class Container:
     swap_router: SwapRouter
+    vault: Vault
+    notion: ERC20
+
 
     def prepare_liquidity(self, swaps: list[SwapInstruction]):
         for swap in swaps:
@@ -95,10 +99,10 @@ class PrincipalContainer(Container, Messaging, BridgeSupport):
     whitelisted_bridge_adapter: dict[BridgeAdapter, bool]
 
     def enter(
-            self,
-            swaps: list[SwapInstruction],
-            bridge_adapters: list[BridgeAdapter],
-            bridge_instructions: list[BridgeInstruction]
+        self,
+        swaps: list[SwapInstruction],
+        bridge_adapters: list[BridgeAdapter],
+        bridge_instructions: list[BridgeInstruction]
     ) -> None:
         if len(bridge_adapters) != len(bridge_instructions):
             raise ValueError("bridge_adapters and bridge_instructions must have same length")
@@ -109,10 +113,24 @@ class PrincipalContainer(Container, Messaging, BridgeSupport):
             self._validate_bridge_adapter(bridge_adapters[i])
             bridge_adapters[i].bridge(instruction)
 
+
+    def receive_message(self, message: Message):
+        if type(message) is DepositConfirmation:
+            self.finalize_enter(message)
+
+    def claim_bridge(self, bridge_adapter: BridgeAdapter, token: ERC20) -> None:
+        self._validate_bridge_adapter(bridge_adapter)
+        bridge_adapter.claim(token)
+
+    def finalize_enter(self, bridge_adapter: BridgeAdapter, callback: DepositConfirmation) -> None:
+        self.claim_bridge(bridge_adapter=bridge_adapter, token=Address(self.notion))
+        self.vault.deposit_container_callback(callback)
+
+
     def start_withdrawal(self, batch_shares: int, total_shares: int) -> None:
-        withdrawal_message = WithdrawalMessage(
-            lp_amount=batch_shares,
-            total_lp=total_shares
+        withdrawal_message = WithdrawalRequest(
+            shares_for_withdrawal=batch_shares,
+            total_shares=total_shares
         )
         self.send_message(withdrawal_message)
 
@@ -122,12 +140,13 @@ class AgentContainer(Container, BridgeSupport, Messaging, ExecutionSupport):
         self._validate_bridge_adapter(bridge_adapter)
         bridge_adapter.claim(token)
 
-    def finalize_enter(self):
-        callback = DepositCallbackMessage(
+    def finalize_enter(self) -> None: # need bridge?
+        callback = DepositConfirmation(
             nav_growth=self.current_batch_liquidity_growth,
-            notion_balance=self.current_notion_growth,
-
+            notion_token_remainder=self.current_notion_growth,
         )
+        self.current_batch_liquidity_growth = 0
+        self.current_notion_growth = 0
         self.send_message(callback)
 
 
