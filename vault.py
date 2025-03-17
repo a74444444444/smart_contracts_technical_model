@@ -187,8 +187,10 @@ class Vault(ERC721):
         """Claim shares after batch deposit"""
         position = self.positions[position_id]
         batch_total_shares = self.depositBatchShares[position.deposit_batch_id]
+        if batch_total_shares == 0:
+            raise Exception("Batch has not been processed")
         batch_nav = self.depositBatchNotionSent[position.deposit_batch_id]
-        user_shares = position.notion_amount * batch_total_shares // batch_nav
+        user_shares = (position.notion_amount * batch_total_shares) // batch_nav
         position.shares_amount = user_shares
         position.notion_amount = 0
 
@@ -199,7 +201,7 @@ class Vault(ERC721):
         Allowed only for position owner.
         When user creates withdrawal request, amount of shares become
         """
-        position = self.positions[position_id]
+        position = self.positions[position_id] # todo: check if position exists
         owner = self.positionOwners[position_id]
         if "msg.sender" != owner:
             raise AuthError()
@@ -221,11 +223,14 @@ class Vault(ERC721):
         self.withdrawal_batch.id_ += 1
 
         for container in self.containers:
-            container.start_withdrawal(batch_shares_amount, self.total_shares)
+            container.start_withdrawal(batch_shares_amount, self.pending_withdrawal_batch.total_supply_snapshot)
 
     def withdrawal_container_callback(self, notion_growth: int) -> None:
-        """Receive callback from container"""
-        # notion.transferFrom??
+        """
+        Receive callback from container
+        Withdraw result - only received notion token. All swaps should happens in container
+        """
+        self.notion.transferFrom("msg.sender", "address(this)", notion_growth)
         self.withdrawalBatchNAVs[self.pending_withdrawal_batch.id_] += notion_growth
 
     def finish_withdrawal_batch_processing(self) -> None:
@@ -239,8 +244,10 @@ class Vault(ERC721):
         position_owner = self.positionOwners[position_id]
         batch_nav = self.withdrawalBatchNAVs[withdrawal_batch_id]
         batch_shares = self.withdrawalBatchShares[withdrawal_batch_id]
+        if batch_shares == 0:
+            raise Exception("Batch has not been processed")
         position = self.positions[position_id]
-        amount_for_claim = position.locked_shares_amount * batch_nav // batch_shares
+        amount_for_claim = (position.locked_shares_amount * batch_nav) // batch_shares
         position.locked_shares_amount -= amount_for_claim
         self.notion.transfer(position_owner, amount_for_claim)
         return amount_for_claim
