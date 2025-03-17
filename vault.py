@@ -1,8 +1,15 @@
 from containers import Container
-from datastructures import (ERC20, ERC721, Address, DepositBatch,
-                            DepositConfirmation, PendingDepositBatch,
-                            PendingWithdrawalBatch, Position, WithdrawalBatch,
-                            WithdrawalResponse)
+from datastructures import (
+    ERC20,
+    ERC721,
+    Address,
+    DepositBatch,
+    DepositConfirmation,
+    PendingDepositBatch,
+    PendingWithdrawalBatch,
+    Position,
+    WithdrawalBatch,
+)
 from errors import AuthError, NotEnoughShares
 
 
@@ -12,37 +19,43 @@ class Vault(ERC721):
     operator: Address
 
     # vault state
-    total_shares: int
-    nav: int
+    total_shares: int = 0
+    nav: int = 0
 
 
-    positions: dict[int, Position] # position_id -> position data
-    positionOwners: dict[int, Address]
+    positions: dict[int, Position] = dict() # position_id -> position data
+    positionOwners: dict[int, Address] = dict()
     last_position_index: int = 0
 
 
     # Batch states
-    deposit_batch: DepositBatch
-    pending_deposit_batch: PendingDepositBatch
-    withdrawal_batch: WithdrawalBatch
-    pending_withdrawal_batch: PendingWithdrawalBatch
+    deposit_batch: DepositBatch = DepositBatch()
+    pending_deposit_batch: PendingDepositBatch = PendingDepositBatch()
+    withdrawal_batch: WithdrawalBatch = WithdrawalBatch()
+    pending_withdrawal_batch: PendingWithdrawalBatch = PendingWithdrawalBatch()
 
     current_pending_withdrawal_batch_id: int
 
 
     # containers
-    containers: list[Container]
-    weights: dict[Container, int]
-    PRECISION: int
+    containers: list[Container] = []
+    weights: dict[Container, int] = dict()
+    PRECISION: int = 1000
 
     # Batch processing
-    batchShares: dict[int, int] # batch_id -> batch shares
-    batchNAVs: dict[int, int] # batch_id -> nav_growth
-    batchRemainders: dict[int, int] # batch_id -> remainder
+    batchShares: dict[int, int] = dict() # batch_id -> batch shares
+    batchNAVs: dict[int, int] = dict()# batch_id -> nav_growth
+    batchRemainders: dict[int, int] = dict()# batch_id -> remainder
 
-    withdrawalBatchShares: dict[int, int] # withdrawal_batch_id -> shares
-    claimable: dict[int, int] # withdrawal batch id -> nav growth
+    withdrawalBatchShares: dict[int, int] = dict()# withdrawal_batch_id -> shares
+    claimable: dict[int, int] = dict()# withdrawal batch id -> nav growth
 
+    def __init__(self, notion: ERC20):
+        self.notion = notion
+
+    def add_container(self, container: Container, weight: int) -> None:
+        self.containers.append(container)
+        self.weights[container] = weight
 
     def create_deposit_request(self, amount: int) -> None:
         """
@@ -57,7 +70,7 @@ class Vault(ERC721):
             notion_amount=amount,
             deposit_batch_id=self.deposit_batch.id_,
         )
-        self.positionOwners[self.last_position_index] = Address("msg.sender")
+        self.positionOwners[self.last_position_index] = "msg.sender"
         self.last_position_index += 1
 
     def start_current_deposit_batch_processing(self) -> None:
@@ -65,8 +78,6 @@ class Vault(ERC721):
         Distribute current batch between containers
         :return:
         """
-        if self.operator != "msg.sender":
-            raise AuthError()
         buffered_amount = self.deposit_batch.buffered_amount
         current_deposit_batch_id = self.deposit_batch.id_
 
@@ -77,7 +88,7 @@ class Vault(ERC721):
 
         for container in self.containers:
             amount = buffered_amount * self.weights[container] // self.PRECISION
-            self.notion.transfer(Address(container), amount)
+            self.notion.transfer(container.address, amount)
 
     def deposit_container_callback(self, deposit_confirmation: DepositConfirmation) -> None:
         """
@@ -86,10 +97,8 @@ class Vault(ERC721):
         :param deposit_confirmation: struct
         :return:
         """
-        if "msg.sender" not in self.containers:
-            raise AuthError()
         if deposit_confirmation.notion_token_remainder > 0:
-            self.notion.safeTransferFrom("msg.sender", "address(this)", deposit_confirmation.notion_token_remainder)
+            self.notion.transferFrom("msg.sender", "address(this)", deposit_confirmation.notion_token_remainder)
             self.pending_deposit_batch.notion_token_remainder += deposit_confirmation.notion_token_remainder
         if deposit_confirmation.nav_growth > 0:
             self.pending_deposit_batch.nav_growth += deposit_confirmation.nav_growth
@@ -100,9 +109,6 @@ class Vault(ERC721):
         Finish deposit batch processing
         :return:
         """
-        if "msg.sender" != self.operator:
-            raise AuthError()
-
         batch_notion_remainder = self.pending_deposit_batch.notion_token_remainder
         batch_nav_growth = self.pending_deposit_batch.nav_growth
         if batch_notion_remainder > 0 and batch_nav_growth > 0:
@@ -125,7 +131,7 @@ class Vault(ERC721):
             """
             shares = self._issue_shares(batch_nav_growth)
             self.batchShares[self.pending_deposit_batch.id] = shares
-            self.batchNAVs[self.pending_deposit_batch.id] = batch_nav_growth
+            self.batchNAVs[self.pending_deposit_batch.id] = self.pending_deposit_batch.batch_nav
 
 
     def claim_remainder_after_deposit(self, position_id: int) -> None:
@@ -186,11 +192,12 @@ class Vault(ERC721):
         for container in self.containers:
             container.start_withdrawal(batch_shares_amount, self.total_shares)
 
-    def withdrawal_container_callback(self, withdrawal_callback: WithdrawalResponse) -> None:
+    def withdrawal_container_callback(self, notion_growth: int) -> None:
         """Receive callback from container"""
         if "msg.sender" not in self.containers:
             raise AuthError()
-        self.claimable[self.pending_withdrawal_batch.id_] += withdrawal_callback.notion_growth
+        # notion.transferFrom??
+        self.claimable[self.pending_withdrawal_batch.id_] += notion_growth
 
     def finish_withdrawal_batch_processing(self) -> None:
         """Specify amount of notion tokens for claim by user in batch"""
@@ -211,7 +218,10 @@ class Vault(ERC721):
 
 
     def _issue_shares(self, nav_growth: int) -> int:
-        shares = nav_growth * self.total_shares // self.nav
+        if self.nav == 0:
+            shares = nav_growth
+        else:
+            shares = nav_growth * self.total_shares // self.nav
         self.total_shares += shares
         self.nav += nav_growth
         return shares

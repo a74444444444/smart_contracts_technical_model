@@ -1,4 +1,4 @@
-from typing import TypeVar
+from typing import TypeVar, Generic
 
 
 # Messages
@@ -48,8 +48,11 @@ class WithdrawalRequest(Message):
         self.shares_for_withdrawal = shares_for_withdrawal
         self.total_shares = total_shares
 
-class WithdrawalResponse(Message):
+class WithdrawalResponse:
     notion_growth: int
+
+    def __init__(self, notion_growth: int):
+        self.notion_growth = notion_growth
 
 
 # Position
@@ -107,6 +110,10 @@ class DepositBatch:
     id_: int
     buffered_amount: int
 
+    def __init__(self):
+        self.id_ = 0
+        self.buffered_amount = 0
+
 class PendingDepositBatch:
     """
     Batch in allocation.
@@ -116,10 +123,10 @@ class PendingDepositBatch:
     :nav_growth: increments after callbacks from container received.
     :notion_token_remainder: amount of notion tokens returned from container if enter failed
     """
-    id: int
-    nav_growth: int
-    notion_token_remainder: int
-    batch_nav: int
+    id: int = 0
+    nav_growth: int = 0
+    notion_token_remainder: int = 0
+    batch_nav: int = 0
 
 class WithdrawalBatch:
     """
@@ -149,11 +156,13 @@ class PendingWithdrawalBatch:
 # Technical
 Address = TypeVar('Address')
 
-class ERC20(Address):
+class ERC20(Generic[Address]):
     address: Address
+    name: str
 
-    def __init__(self, address: Address):
+    def __init__(self, address: Address, name: str):
         self.address = address
+        self.name = name
 
     def balanceOf(self, owner: Address) -> int:
         return 0
@@ -168,7 +177,7 @@ class ERC20(Address):
         return True
 
 
-class ERC721(Address):
+class ERC721(Generic[Address]):
     address: Address
 
     def balanceOf(self, owner: Address) -> int:
