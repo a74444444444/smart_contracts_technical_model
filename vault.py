@@ -1,3 +1,5 @@
+from collections import defaultdict
+
 from containers import Container
 from datastructures import (
     ERC20,
@@ -47,8 +49,9 @@ class Vault(ERC721):
     batchNAVs: dict[int, int] = dict()# batch_id -> nav_growth
     batchRemainders: dict[int, int] = dict()# batch_id -> remainder
 
-    withdrawalBatchShares: dict[int, int] = dict()# withdrawal_batch_id -> shares
-    claimable: dict[int, int] = dict()# withdrawal batch id -> nav growth
+    withdrawalBatchShares: dict[int, int] = defaultdict(int) # withdrawal_batch_id -> shares
+    withdrawalBatchNAVs: dict[int, int] = defaultdict(int)
+    claimable: dict[int, int] = defaultdict(int)# withdrawal batch id -> nav growth
 
     def __init__(self, notion: ERC20):
         self.notion = notion
@@ -182,8 +185,6 @@ class Vault(ERC721):
 
     def start_current_withdrawal_batch_processing(self) -> None:
         """Init withdrawal processing"""
-        if "msg.sender" != self.operator:
-            raise AuthError()
         batch_shares_amount = self.withdrawal_batch.batch_shares_amount
 
         self.pending_withdrawal_batch.id_ = self.withdrawal_batch.id_
@@ -198,27 +199,25 @@ class Vault(ERC721):
 
     def withdrawal_container_callback(self, notion_growth: int) -> None:
         """Receive callback from container"""
-        if "msg.sender" not in self.containers:
-            raise AuthError()
         # notion.transferFrom??
-        self.claimable[self.pending_withdrawal_batch.id_] += notion_growth
+        self.withdrawalBatchNAVs[self.pending_withdrawal_batch.id_] += notion_growth
 
     def finish_withdrawal_batch_processing(self) -> None:
         """Specify amount of notion tokens for claim by user in batch"""
-        if "msg.sender" != self.operator:
-            raise AuthError()
-        nav_decrease = self.claimable[self.current_pending_withdrawal_batch_id]
+        nav_decrease = self.withdrawalBatchNAVs[self.pending_withdrawal_batch.id_]
         lps = self.pending_withdrawal_batch.batch_shares_amount
+        self.withdrawalBatchShares[self.pending_withdrawal_batch.id_] = lps
         self._burn_shares(nav_decrease, lps)
 
-    def claim_withdrawn_notion_token(self, position_id: int, withdrawal_batch_id: int) -> None:
+    def claim_withdrawn_notion_token(self, position_id: int, withdrawal_batch_id: int) -> int:
         position_owner = self.positionOwners[position_id]
-        batch_nav = self.batchNAVs[withdrawal_batch_id]
-        batch_shares = self.batchShares[withdrawal_batch_id]
+        batch_nav = self.withdrawalBatchNAVs[withdrawal_batch_id]
+        batch_shares = self.withdrawalBatchShares[withdrawal_batch_id]
         position = self.positions[position_id]
         amount_for_claim = position.locked_shares_amount * batch_nav // batch_shares
         position.locked_shares_amount -= amount_for_claim
         self.notion.transfer(position_owner, amount_for_claim)
+        return amount_for_claim
 
 
     def _issue_shares(self, nav_growth: int) -> int:

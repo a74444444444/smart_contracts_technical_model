@@ -135,8 +135,8 @@ class WithdrawalBatch:
     :id: withdrawal batch id
     :batch_shares_amount: accumulator for user withdrawals
     """
-    id_: int
-    batch_shares_amount: int
+    id_: int = 0
+    batch_shares_amount: int = 0
 
 class PendingWithdrawalBatch:
     """
