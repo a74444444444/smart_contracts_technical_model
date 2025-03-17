@@ -18,7 +18,7 @@ from errors import AuthError, NotEnoughShares
 class Vault(ERC721):
     # vault configuration
     notion: ERC20
-    operator: Address
+    operator: Address = "0x0"
 
     # vault state
     total_shares: int = 0
@@ -51,7 +51,6 @@ class Vault(ERC721):
 
     withdrawalBatchShares: dict[int, int] = defaultdict(int) # withdrawal_batch_id -> shares
     withdrawalBatchNAVs: dict[int, int] = defaultdict(int)
-    claimable: dict[int, int] = defaultdict(int)# withdrawal batch id -> nav growth
 
     def __init__(self, notion: ERC20):
         self.notion = notion
