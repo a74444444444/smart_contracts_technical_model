@@ -1,5 +1,6 @@
 from datastructures import SwapInstruction
 
+
 class SwapAdapter:
     pool: str
 

@@ -1,15 +1,22 @@
 from typing import TypeVar
 
+
 # Messages
 class Message:
-    ...
+    def from_bytes(self, raw: bytes) -> "Message":
+        raise NotImplementedError()
+
+    def to_bytes(self) -> bytes:
+        raise NotImplementedError()
 
 class BridgeMessage(Message):
     container: str
 
-    @classmethod
-    def decode(cls, message: bytes) -> "BridgeMessage":
-        return BridgeMessage(container="from bytes")
+    def from_bytes(self, raw: bytes) -> "BridgeMessage":
+        return BridgeMessage(container="")
+
+    def to_bytes(self) -> bytes:
+        return b"\x01"
 
     def __init__(self, container: str):
         self.container = container
@@ -17,6 +24,15 @@ class BridgeMessage(Message):
 class DepositConfirmation(Message):
     nav_growth: int
     notion_token_remainder: int
+
+    def from_bytes(self, raw: bytes) -> "DepositConfirmation":
+        return DepositConfirmation(
+            nav_growth=0,
+            notion_token_remainder=0,
+        )
+
+    def to_bytes(self) -> bytes:
+        return b"\x02"
 
     def __init__(self, nav_growth: int, notion_token_remainder: int):
         self.nav_growth = nav_growth

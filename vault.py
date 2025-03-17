@@ -1,16 +1,8 @@
-from datastructures import (
-    Position,
-    Address,
-    ERC20,
-    ERC721,
-    DepositConfirmation,
-    WithdrawalResponse,
-    DepositBatch,
-    PendingDepositBatch,
-    WithdrawalBatch,
-    PendingWithdrawalBatch
-)
 from containers import Container
+from datastructures import (ERC20, ERC721, Address, DepositBatch,
+                            DepositConfirmation, PendingDepositBatch,
+                            PendingWithdrawalBatch, Position, WithdrawalBatch,
+                            WithdrawalResponse)
 from errors import AuthError, NotEnoughShares
 
 

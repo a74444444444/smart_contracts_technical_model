@@ -1,9 +1,12 @@
-from datastructures import SwapInstruction, BridgeInstruction, ERC20, DepositConfirmation, Address, WithdrawalResponse, \
-    WithdrawalRequest
-from swap_router import SwapRouter
 from bridge_adapters import BridgeAdapter, BridgeSupport
-from messaging import Messaging, Message
+from datastructures import (ERC20, Address, BridgeInstruction,
+                            DepositConfirmation, SwapInstruction,
+                            WithdrawalRequest, WithdrawalResponse)
+from errors import AuthError
+from messaging import Message, Messaging
+from swap_router import SwapRouter
 from vault import Vault
+
 
 class Logic:
     def enter(self, tokens: list[ERC20], amounts: list[int]) -> int:
@@ -86,9 +89,12 @@ class Container:
     swap_router: SwapRouter
     vault: Vault
     notion: ERC20
+    operator: Address
 
 
     def prepare_liquidity(self, swaps: list[SwapInstruction]):
+        if "msg.sender" != self.operator:
+            raise AuthError("Only operator allowed")
         for swap in swaps:
             self.swap_router.swap(swap)
 
@@ -116,13 +122,14 @@ class PrincipalContainer(Container, Messaging, BridgeSupport):
 
     def receive_message(self, message: Message):
         if type(message) is DepositConfirmation:
+            message = DepositConfirmation.from_message(message)
             self.finalize_enter(message)
 
     def claim_bridge(self, bridge_adapter: BridgeAdapter, token: ERC20) -> None:
         self._validate_bridge_adapter(bridge_adapter)
         bridge_adapter.claim(token)
 
-    def finalize_enter(self, bridge_adapter: BridgeAdapter, callback: DepositConfirmation) -> None:
+    def finalize_enter(self, bridge_adapters: list[BridgeAdapter], callback: DepositConfirmation) -> None:
         self.claim_bridge(bridge_adapter=bridge_adapter, token=Address(self.notion))
         self.vault.deposit_container_callback(callback)
 
@@ -137,10 +144,18 @@ class PrincipalContainer(Container, Messaging, BridgeSupport):
 
 class AgentContainer(Container, BridgeSupport, Messaging, ExecutionSupport):
     def claim_bridge(self, bridge_adapter: BridgeAdapter, token: ERC20) -> None:
+        """Call n times (n - amount of bridges)"""
+        if "msg.sender" != self.operator:
+            raise AuthError()
         self._validate_bridge_adapter(bridge_adapter)
         bridge_adapter.claim(token)
 
-    def finalize_enter(self) -> None: # need bridge?
+    def finalize_remote_enter(self) -> None: # need bridge?
+        """
+         After enters to any logics processed,
+         system know about current nav growth and notion token remainder.
+         Batch or fully processed, or fully reverted
+         """
         callback = DepositConfirmation(
             nav_growth=self.current_batch_liquidity_growth,
             notion_token_remainder=self.current_notion_growth,

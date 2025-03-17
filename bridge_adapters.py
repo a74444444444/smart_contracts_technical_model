@@ -1,4 +1,5 @@
-from datastructures import BridgeInstruction, BridgeMessage, ERC20
+from datastructures import ERC20, BridgeInstruction, BridgeMessage
+
 
 class BridgeAdapter:
     # holder => token => amount
