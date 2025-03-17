@@ -97,3 +97,6 @@ assert claimed_by_0 == (100 + 100 + 100 + 95) // 4
 assert claimed_by_1 == (100 + 100 + 100 + 95) // 4
 assert claimed_by_2 == (100 + 100 + 100 + 95) // 4
 assert claimed_by_3 == (100 + 100 + 100 + 95) // 4
+
+assert v.total_shares == 0
+assert v.nav == 0
