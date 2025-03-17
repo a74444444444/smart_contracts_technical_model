@@ -27,10 +27,6 @@ class Vault(ERC721):
     withdrawal_batch: WithdrawalBatch
     pending_withdrawal_batch: PendingWithdrawalBatch
 
-    current_withdrawal_batch_buffered_amount: int
-    current_withdrawal_batch_id: int
-    current_withdrawal_nav_growth: int
-    current_withdrawal_callbacks_received: int
     current_pending_withdrawal_batch_id: int
 
 

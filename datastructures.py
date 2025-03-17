@@ -26,6 +26,7 @@ class DepositConfirmation(Message):
     notion_token_remainder: int
 
     def from_bytes(self, raw: bytes) -> "DepositConfirmation":
+        """hardcode"""
         return DepositConfirmation(
             nav_growth=0,
             notion_token_remainder=0,
