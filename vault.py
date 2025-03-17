@@ -104,6 +104,9 @@ class Vault(ERC721):
             self.pending_deposit_batch.nav_growth += deposit_confirmation.nav_growth
         # todo: think about mark callback from certain container as received
 
+    def reset_pending_deposit_nav_growth(self):
+        self.pending_deposit_batch.nav_growth = 0
+
     def finish_deposit_batch_processing(self) -> None:
         """
         Finish deposit batch processing
@@ -134,7 +137,7 @@ class Vault(ERC721):
             self.batchNAVs[self.pending_deposit_batch.id] = self.pending_deposit_batch.batch_nav
 
 
-    def claim_remainder_after_deposit(self, position_id: int) -> None:
+    def claim_remainder_after_deposit(self, position_id: int) -> int:
         """
         Claim tokens from reverted batch
         """
@@ -148,6 +151,7 @@ class Vault(ERC721):
         del position
         amount_for_claim = user_amount * batch_remainder // batch_amount
         self.notion.transfer(positionOwner, amount_for_claim)
+        return amount_for_claim
 
 
     def claim_shares_after_deposit(self, position_id: int) -> None:

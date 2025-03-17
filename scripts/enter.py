@@ -1,5 +1,3 @@
-from typing import assert_type
-
 from vault import Vault
 from containers import Container
 from datastructures import ERC20, DepositConfirmation

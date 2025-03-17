@@ -59,7 +59,7 @@ class WithdrawalResponse:
 class Position:
     notion_amount: int
     shares_amount: int
-    locked_shares_amount: int
+    locked_shares_amount: int = 0
     deposit_batch_id: int
     withdrawal_batch_id: int
 
