@@ -45,4 +45,3 @@ for agent in vault.containers:
 for agent in vault.containers:
     agent.finish_withdrawal_processing()
 ```
-5. 

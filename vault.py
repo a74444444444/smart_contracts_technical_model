@@ -44,8 +44,7 @@ class Vault(ERC721):
     # Batch processing
     depositBatchNotionSent: dict[int, int] = dict()
     depositBatchShares: dict[int, int] = dict() # batch_id -> batch shares
-    # depositBatchNAVs: dict[int, int] = dict()# batch_id -> nav
-    depositBatchRemainders: dict[int, int] = dict()# batch_id -> remainder
+    depositBatchRemainders: dict[int, int] = dict() # batch_id -> remainder
 
     withdrawalBatchShares: dict[int, int] = defaultdict(int) # withdrawal_batch_id -> shares
     withdrawalBatchNAVs: dict[int, int] = defaultdict(int)

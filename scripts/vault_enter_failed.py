@@ -2,6 +2,7 @@ from vault import Vault
 from containers import Container
 from datastructures import ERC20, DepositConfirmation
 
+# Deposit into empty vault if some enter failed
 
 notion = ERC20(address="0x01", name="USDC")
 

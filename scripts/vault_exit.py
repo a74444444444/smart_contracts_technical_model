@@ -72,5 +72,5 @@ v.finish_withdrawal_batch_processing()
 
 claimed_by_0 = v.claim_withdrawn_notion_token(0, 0)
 claimed_by_1 = v.claim_withdrawn_notion_token(1, 0)
-print(claimed_by_0)
-print(claimed_by_1)
+assert claimed_by_0 > 0
+assert claimed_by_1 > 0

@@ -15,7 +15,10 @@ class SwapRouter:
     whitelistedSwapAdapters: dict[SwapAdapter, bool]
     adaptersList: list[SwapAdapter]
 
-    def swap(self, swap_adapter: SwapAdapter, swap: SwapInstruction):
+    def swapViaAdapter(self, swap_adapter: SwapAdapter, swap: SwapInstruction):
+        ...
+
+    def swap(self, swap: SwapInstruction):
         ...
 
     def quote(self, swap_adapter: SwapAdapter, swap: SwapInstruction):

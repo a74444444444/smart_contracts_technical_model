@@ -97,10 +97,11 @@ class Container:
     operator: Address
     address: str = "0x2"
 
+    def __init__(self, swap_router: SwapRouter) -> None:
+        self.swap_router = swap_router
+
 
     def prepare_liquidity(self, swaps: list[SwapInstruction]):
-        if "msg.sender" != self.operator:
-            raise AuthError("Only operator allowed")
         for swap in swaps:
             self.swap_router.swap(swap)
 
@@ -111,7 +112,6 @@ class PrincipalContainer(Container, Messaging, BridgeSupport):
     whitelisted_bridge_adapter: dict[BridgeAdapter, bool]
     current_batch_liquidity_growth: int
     current_notion_growth: int
-
 
     # Enter processing
     def start_enter(
@@ -125,14 +125,11 @@ class PrincipalContainer(Container, Messaging, BridgeSupport):
         Awaits amount of notion tokens on Principal contract
         Can process optional swaps and bridges for sending funds to remote container's Agent
         """
-        if self.operator != "msg.sender":
-            raise ValueError("Only operator allowed")
         if len(bridge_adapters) != len(bridge_instructions):
             raise ValueError("bridge_adapters and bridge_instructions must have same length")
 
         self.prepare_liquidity(swaps)
         for i, instruction in enumerate(bridge_instructions):
-            self._validate_bridge_adapter(bridge_adapters[i])
             bridge_adapters[i].bridge(instruction)
 
     def _claim_deposit_confirmation(self, message: DepositConfirmation) -> None:
