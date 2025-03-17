@@ -74,7 +74,6 @@ v.deposit_container_callback(
         notion_token_remainder=95
     )
 )
-v.reset_pending_deposit_nav_growth()
 v.finish_deposit_batch_processing()
 
 

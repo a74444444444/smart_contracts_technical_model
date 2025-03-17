@@ -127,6 +127,7 @@ class PendingDepositBatch:
     nav_growth: int = 0
     notion_token_remainder: int = 0
     batch_nav: int = 0
+    processed_containers: list = []
 
 class WithdrawalBatch:
     """
