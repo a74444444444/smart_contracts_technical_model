@@ -1,6 +1,6 @@
 from vault import Vault
 from containers import Container
-from datastructures import ERC20, DepositConfirmation
+from datastructures import ERC20, SuccessDepositConfirmation
 
 # Deposit into empty vault if some enter failed
 
@@ -25,25 +25,25 @@ v.create_deposit_request(100)
 v.start_current_deposit_batch_processing()
 
 v.deposit_container_callback(
-    deposit_confirmation=DepositConfirmation(
+    deposit_confirmation=SuccessDepositConfirmation(
         nav_growth=100,
         notion_token_remainder=0
     )
 )
 v.deposit_container_callback(
-    deposit_confirmation=DepositConfirmation(
+    deposit_confirmation=SuccessDepositConfirmation(
         nav_growth=90,
         notion_token_remainder=0
     )
 )
 v.deposit_container_callback(
-    deposit_confirmation=DepositConfirmation(
+    deposit_confirmation=SuccessDepositConfirmation(
         nav_growth=95,
         notion_token_remainder=0
     )
 )
 v.deposit_container_callback(
-    deposit_confirmation=DepositConfirmation(
+    deposit_confirmation=SuccessDepositConfirmation(
         nav_growth=0,
         notion_token_remainder=100
     )
@@ -58,19 +58,19 @@ except Exception as e:
 
 # finish deposit container callback
 v.deposit_container_callback(
-    deposit_confirmation=DepositConfirmation(
+    deposit_confirmation=SuccessDepositConfirmation(
         nav_growth=0,
         notion_token_remainder=100
     )
 )
 v.deposit_container_callback(
-    deposit_confirmation=DepositConfirmation(
+    deposit_confirmation=SuccessDepositConfirmation(
         nav_growth=0,
         notion_token_remainder=100
     )
 )
 v.deposit_container_callback(
-    deposit_confirmation=DepositConfirmation(
+    deposit_confirmation=SuccessDepositConfirmation(
         nav_growth=0,
         notion_token_remainder=95
     )

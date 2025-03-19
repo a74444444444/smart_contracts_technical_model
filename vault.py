@@ -6,7 +6,6 @@ from datastructures import (
     ERC721,
     Address,
     DepositBatch,
-    DepositConfirmation,
     PendingDepositBatch,
     PendingWithdrawalBatch,
     Position,
@@ -90,7 +89,14 @@ class Vault(ERC721):
             amount = buffered_amount * self.weights[container] // self.PRECISION
             self.notion.transfer(container.address, amount)
 
-    def deposit_container_callback(self, deposit_confirmation: DepositConfirmation) -> None:
+    def transfer_notion_to_container_after_failed_enter(self, amount: int, container: Container) -> None:
+        # check if container whitelisted
+        notion_balance = self.notion.balanceOf("address(this)")
+        if notion_balance - self.deposit_batch.buffered_amount < amount:
+            raise Exception("Not enough liquidity")
+        self.notion.transfer(container.address, amount)
+
+    def deposit_container_callback(self, nav_after_harvest: int, nav_after_harvest_and_enter: int, notion_token_remainder: int) -> None:
         """
         Receive deposit confirmation from container
         As a result, during deposit callback receiving process
@@ -98,33 +104,32 @@ class Vault(ERC721):
         :param deposit_confirmation: struct
         :return:
         """
-        container_remainder = deposit_confirmation.notion_token_remainder
-        container_nav_growth = deposit_confirmation.nav_growth
-
-        if container_remainder > 0 and container_nav_growth > 0:
+        nav_growth = nav_after_harvest_and_enter - nav_after_harvest
+        if notion_token_remainder > 0 and nav_growth > 0:
             raise Exception("Container enter fully processed or fully canceled")
 
         batch_total_remainder = self.pending_deposit_batch.notion_token_remainder
-        if batch_total_remainder > 0 and container_nav_growth > 0:
+        if batch_total_remainder > 0 and nav_growth > 0:
             raise Exception("If some enter failed in batch, need to cancel enters in other containers")
-
-        if batch_total_remainder == 0 and container_remainder > 0:
+        if batch_total_remainder == 0 and notion_token_remainder > 0:
             self._reset_pending_deposit_nav_growth()
 
-        if container_remainder > 0:
+        if notion_token_remainder > 0:
             """Claim notion token remainder from container"""
-            self.notion.transferFrom("msg.sender", "address(this)", deposit_confirmation.notion_token_remainder)
-            self.pending_deposit_batch.notion_token_remainder += deposit_confirmation.notion_token_remainder
+            """Waiting transfer"""
+            self.pending_deposit_batch.notion_token_remainder += notion_token_remainder
             self.pending_deposit_batch.processed_containers.append("msg.sender")
-        elif container_nav_growth > 0:
-            self.pending_deposit_batch.nav_growth += deposit_confirmation.nav_growth
+        elif nav_growth > 0:
+            self.pending_deposit_batch.nav_after_harvest += nav_after_harvest
+            self.pending_deposit_batch.nav_after_harvest_and_enter += nav_after_harvest_and_enter
             self.pending_deposit_batch.processed_containers.append("msg.sender")
 
     def _reset_pending_deposit_nav_growth(self):
         # todo: think about better solution
         # need to reset nav growth in case where enter in some container
         # failed during the batch deposit processing happen
-        self.pending_deposit_batch.nav_growth = 0
+        self.pending_deposit_batch.nav_after_harvest = 0
+        self.pending_deposit_batch.nav_after_harvest_and_enter = 0
         self.pending_deposit_batch.processed_containers = [] # mark that need to process all containers again (for withdraw funds)
 
     def finish_deposit_batch_processing(self) -> None:
@@ -133,7 +138,7 @@ class Vault(ERC721):
         :return:
         """
         batch_notion_remainder = self.pending_deposit_batch.notion_token_remainder
-        batch_nav_growth = self.pending_deposit_batch.nav_growth
+        batch_nav_growth = self.pending_deposit_batch.nav_after_harvest_and_enter - self.pending_deposit_batch.nav_after_harvest
         if batch_notion_remainder > 0 and batch_nav_growth > 0:
             """Batch can be fully executed or fully reverted"""
             raise Exception("Batch fully executed or fully reverted")
@@ -141,7 +146,6 @@ class Vault(ERC721):
             raise Exception("Container has not been processed")
 
         self.pending_deposit_batch.notion_token_remainder = 0
-        self.pending_deposit_batch.nav_growth = 0
         self.pending_deposit_batch.processed_containers = []
         self.depositBatchNotionSent[self.pending_deposit_batch.id] = self.pending_deposit_batch.batch_nav
 
@@ -158,6 +162,7 @@ class Vault(ERC721):
             """
             shares = self._issue_shares(batch_nav_growth) # todo: think about mint ordering: in moment of batch processing or claim by user
             self.depositBatchShares[self.pending_deposit_batch.id] = shares
+        self._reset_pending_deposit_nav_growth()
 
 
     def claim_remainder_after_deposit(self, position_id: int) -> int:
@@ -256,7 +261,7 @@ class Vault(ERC721):
         if self.nav == 0:
             shares = nav_growth
         else:
-            shares = nav_growth * self.total_shares // self.nav
+            shares = nav_growth * self.total_shares // self.pending_deposit_batch.nav_after_harvest
         self.total_shares += shares
         self.nav += nav_growth
         return shares

@@ -1,13 +1,26 @@
 from bridge_adapters import BridgeAdapter, BridgeSupport
-from datastructures import (ERC20, Address, BridgeInstruction,
-                            DepositConfirmation, SwapInstruction,
-                            WithdrawalRequest, WithdrawalResponse)
-from errors import AuthError
+from datastructures import (
+    ERC20,
+    Address,
+    BridgeInstruction,
+    SwapInstruction,
+    WithdrawalRequest,
+    WithdrawalResponse,
+    SuccessDepositConfirmation,
+    ContainerMessage
+)
 from messaging import Message, Messaging
 from swap_router import SwapRouter
+from typing import Generic, TypeVar
 
+T = TypeVar('T')
+
+class Vault(Generic[T]):
+    ...
 
 class Logic:
+    logic_nav: int = 48 # technical value
+
     def enter(self, tokens: list[ERC20], amounts: list[int]) -> int:
         ...
 
@@ -15,7 +28,7 @@ class Logic:
         # liquidity_decrease - amount of liquidity weighted by nav and lp amount and total lp
         ...
 
-    def claim(self) -> None:
+    def harvest(self) -> None:
         ...
 
     def emergency_exit(self) -> None:
@@ -25,18 +38,21 @@ class Logic:
         ...
 
     def nav(self) -> int:
-        return 0
+        current_nav = self.logic_nav
+        self.logic_nav += 48
+        return current_nav
 
     def underlying_liquidity_amount(self) -> int:
         return 0
 
 class ExecutionSupport:
-    logics: dict[Logic, bool]
+    logics: dict[Logic, bool] = dict()
 
-    current_batch_liquidity_growth: int
+    nav_after_harvest: int = 0
+    nav_after_harvest_and_enter: int = 0
 
-    current_shares_for_withdrawal: int
-    current_total_shares: int
+    shares_for_withdraw: int = 0
+    total_shares: int = 0
 
     def setLogic(self, logic: Logic, is_whitelisted: bool) -> None:
         self.logics[logic] = is_whitelisted
@@ -44,17 +60,17 @@ class ExecutionSupport:
     def enter_logic(
             self,
             logic: Logic,
-            tokens: ERC20,
+            tokens: list[ERC20],
             amounts: list[int],
             min_liquidity_delta: int,
     ) -> int:
         if not self.logics[logic]:
             raise ValueError("Logic is not whitelisted")
-        current_liquidity = logic.underlying_liquidity_amount()
+        logic.harvest()
+        self.nav_after_harvest += logic.nav()
         logic.enter(tokens, amounts)
-        liquidity_after = logic.underlying_liquidity_amount()
-        delta = liquidity_after - current_liquidity
-        self.current_batch_liquidity_growth += delta
+        self.nav_after_harvest_and_enter += logic.nav()
+        delta = self.nav_after_harvest_and_enter - self.nav_after_harvest
         if delta < min_liquidity_delta:
             raise ValueError("Slippage failed")
         return delta
@@ -72,8 +88,8 @@ class ExecutionSupport:
             deltas.append(
                 token.balanceOf("address(this)")
             )
-        logic_nav = logic.underlying_liquidity_amount()
-        amount_for_withdraw = logic_nav * self.current_shares_for_withdrawal // self.current_total_shares
+        logic_lps = logic.underlying_liquidity_amount()
+        amount_for_withdraw = (logic_lps * self.current_shares_for_withdrawal) // self.current_total_shares
         logic.exit(liquidity_decrease=amount_for_withdraw)
         for i, token in enumerate(expected_tokens):
             token_delta = token.balanceOf("address(this)") - deltas[i]
@@ -95,13 +111,16 @@ class Container:
     vault: Address
     notion: ERC20
     operator: Address
-    address: str = "0x2"
+    address: str = "0x0000000000000000000000000000000000000002"
 
-    def __init__(self, swap_router: SwapRouter) -> None:
+    def __init__(self, swap_router: SwapRouter, notion: ERC20) -> None:
         self.swap_router = swap_router
-
+        self.notion = notion
 
     def prepare_liquidity(self, swaps: list[SwapInstruction]):
+        """
+        Do some swaps before some actions.
+        """
         for swap in swaps:
             self.swap_router.swap(swap)
 
@@ -109,9 +128,13 @@ class Container:
         ...
 
 class PrincipalContainer(Container, Messaging, BridgeSupport):
-    whitelisted_bridge_adapter: dict[BridgeAdapter, bool]
-    current_batch_liquidity_growth: int
-    current_notion_growth: int
+    container_nav_after_harvest: int = 0
+    container_nav_after_enter: int = 0
+    vault: "Vault"
+
+    def __init__(self, vault: "Vault", swap_router: SwapRouter, notion: ERC20) -> None:
+        Container.__init__(self, swap_router, notion)
+        self.vault = vault
 
     # Enter processing
     def start_enter(
@@ -132,41 +155,42 @@ class PrincipalContainer(Container, Messaging, BridgeSupport):
         for i, instruction in enumerate(bridge_instructions):
             bridge_adapters[i].bridge(instruction)
 
-    def _claim_deposit_confirmation(self, message: DepositConfirmation) -> None:
+    def _claim_deposit_confirmation(self, message: SuccessDepositConfirmation) -> None:
         """
-        After enters into logic on remote chain happens, Agent sends to Principal
+        After success enters into logics on remote chain happens, Agent sends to Principal
         deposit confirmation.
-        Deposit confirmation has nav_growth and notion_token_remainder fields
-        * nav_growth - notion growth in container after entering all logics
-        * current_notion_growth - amount of notion tokens received from Agent if at least 1 enter logic
-        failed (if at least 1 failed - we should process all exits)
-        nav_growth and current_notion_growth cannot be more 0 both. Batch or processed success fully,
-        or fully failed.
+        Fields:
+        * container_nav_after_harvest
+        * container_nav_after_enter
         """
-        self.current_batch_liquidity_growth = message.nav_growth
-        self.current_notion_growth = message.notion_token_remainder
+        self.container_nav_after_harvest = message.nav_after_harvest
+        self.container_nav_after_enter = message.nav_after_harvest_and_enter
 
     def finalize_enter(
         self,
         bridge_adapters: list[BridgeAdapter],
         swaps: list[SwapInstruction],
-        callback: DepositConfirmation
     ) -> None:
         """
         After receiving deposit confirmation (cross-chain message) and bridge receiving bridge adapters,
         possible to claim tokens, swap it (if necessary) into notion token and execute callback on vault
         for unlock batch actions for users (user actions - claim shares or notion tokens from failed batch)
+        As a result - we should have nav growth and notion token remainder
         """
-        if self.operator != "msg.sender":
-            raise ValueError("Only operator allowed")
         for bridge_adapter in bridge_adapters:
             self.claim_bridge(bridge_adapter=bridge_adapter, token=Address(self.notion))
-        self.prepare_liquidity(swaps)
+        notion_before = self.notion.balanceOf("address(this)")
+        self.prepare_liquidity(swaps) # swap to notion
+        notion_after = self.notion.balanceOf("address(this)")
 
         # transfer notion if exists?
-        self.vault.deposit_container_callback(callback)
-        self.current_batch_liquidity_growth = 0
-        self.current_notion_growth = 0
+        self.vault.deposit_container_callback(
+            nav_after_harvest=self.container_nav_after_harvest,
+            nav_after_harvest_and_enter=self.container_nav_after_enter,
+            notion_token_remainder=notion_after - notion_before,
+        )
+        if notion_after - notion_before > 0:
+            self.notion.transfer(self.vault, notion_after - notion_before)
 
 
     def start_withdrawal(self, batch_shares: int, total_shares: int) -> None:
@@ -205,8 +229,8 @@ class PrincipalContainer(Container, Messaging, BridgeSupport):
 
 
     def receive_message(self, message: bytes):
-        if type(message) is DepositConfirmation:
-            message = DepositConfirmation.from_bytes(message)
+        if type(message) is SuccessDepositConfirmation:
+            message = SuccessDepositConfirmation.from_bytes(message)
             self._claim_deposit_confirmation(message)
         elif type(message) is WithdrawalResponse:
             message = WithdrawalResponse.from_bytes(message)
@@ -217,50 +241,49 @@ class PrincipalContainer(Container, Messaging, BridgeSupport):
         bridge_adapter.claim(token)
 
 class AgentContainer(Container, BridgeSupport, Messaging, ExecutionSupport):
-    def claim_bridge(self, bridge_adapter: BridgeAdapter, token: ERC20) -> None:
-        """Call n times (n - amount of bridges)"""
-        if "msg.sender" != self.operator:
-            raise AuthError()
-        self._validate_bridge_adapter(bridge_adapter)
-        bridge_adapter.claim(token)
+    def finalize_success_enters(self) -> None: # need bridge?
+        """
+        Send callback about success enters
+        Sent parameters:
+        * nav_after_harvest - nav after harvest in all logics
+        * nav after enter - nav after harvest in all logics and enters
+        """
+        callback = SuccessDepositConfirmation(
+            nav_after_harvest=self.nav_after_harvest,
+            nav_after_harvest_and_enter=self.nav_after_harvest_and_enter,
+        )
+        self.nav_after_harvest = 0
+        self.nav_after_harvest_and_enter = 0
+        self.send_message(callback)
 
-    def finalize_remote_enter(
+    def return_funds(
         self,
         bridge_adapters: list[BridgeAdapter],
         bridge_instructions: list[BridgeInstruction]
-    ) -> None: # need bridge?
+    ) -> None:
         """
-         1. Process bridges in needed (if enters failed)
-         2. Send callback with deposit confirmation
-         """
+        Return receipts after failed enters
+        """
+        # TODO: token whitelisting, may be batch accounting for prevent some bad spending
+        # TODO: think about some verifications (message with amounts or something like this)
 
-        notion_before = self.notion.balanceOf("address(this)")
         for i, bridge_adapter in enumerate(bridge_adapters):
             bridge_adapter.bridge(bridge_instructions[i])
-        notion_after = self.notion.balanceOf("address(this)")
 
-        callback = DepositConfirmation(
-            nav_growth=self.current_batch_liquidity_growth,
-            notion_token_remainder=notion_after - notion_before, # todo: it should be real bridged amount
-        )
-        self.current_batch_liquidity_growth = 0
-        self.send_message(callback)
+    def finish_withdrawal_processing(
+        self,
+        bridge_adapters: list[BridgeAdapter],
+        bridges: list[BridgeInstruction],
+        swaps: list[SwapInstruction]
+    ) -> None:
+        self._finish_withdrawal()
+        self.prepare_liquidity(swaps)
+        for i, bridge_adapter in enumerate(bridge_adapters):
+            bridge_adapter.bridge(bridges[i])
 
     def receive_message(self, message: Message) -> None:
         if type(message) is WithdrawalRequest:
             self._claim_withdrawal_request(message)
-
-    def finish_withdrawal_processing(
-            self,
-            bridge_adapters: list[BridgeAdapter],
-            bridges: list[BridgeInstruction],
-            swaps: list[SwapInstruction]
-    ) -> None:
-        self._finish_withdrawal()
-        for swap in swaps:
-            self.swap_router.swap(swap)
-        for i, bridge_adapter in enumerate(bridge_adapters):
-            bridge_adapter.bridge(bridges[i])
 
 
 class LocalContainer(Container, ExecutionSupport):

@@ -1,5 +1,11 @@
+from enum import Enum
 from typing import TypeVar, Generic
+from eth_abi import encode, decode
 
+class MessageType(Enum):
+    DEPOSIT_CONFIRMATION = 0
+    WITHDRAWAL_REQUEST = 1
+    WITHDRAWAL_RESPONSE = 2
 
 # Messages
 class Message:
@@ -9,36 +15,47 @@ class Message:
     def to_bytes(self) -> bytes:
         raise NotImplementedError()
 
+class ContainerMessage(Message):
+    type: MessageType
+    payload: bytes
+
+    def to_bytes(self) -> bytes:
+        return encode(["uint8", "bytes"], [self.type.value, self.payload])
+
+    def __init__(self, type: MessageType, data: bytes):
+        self.type = type
+        self.payload = data
+
 class BridgeMessage(Message):
     container: str
 
     def from_bytes(self, raw: bytes) -> "BridgeMessage":
-        return BridgeMessage(container="")
+        decoded = decode(["address"], raw)[0]
+        return BridgeMessage(container=decoded)
 
     def to_bytes(self) -> bytes:
-        return b"\x01"
+        return encode(["address"], [self.container])
 
     def __init__(self, container: str):
         self.container = container
 
-class DepositConfirmation(Message):
-    nav_growth: int
-    notion_token_remainder: int
-
-    def from_bytes(self, raw: bytes) -> "DepositConfirmation":
-        """hardcode"""
-        return DepositConfirmation(
-            nav_growth=0,
-            notion_token_remainder=0,
-        )
+class SuccessDepositConfirmation(Message):
+    nav_after_harvest: int = 0
+    nav_after_harvest_and_enter: int = 0
 
     def to_bytes(self) -> bytes:
-        return b"\x02"
+        return encode(["uint256", "uint256"], [self.nav_after_harvest, self.nav_after_harvest_and_enter])
 
-    def __init__(self, nav_growth: int, notion_token_remainder: int):
-        self.nav_growth = nav_growth
-        self.notion_token_remainder = notion_token_remainder
+    def from_bytes(self, raw: bytes) -> "SuccessDepositConfirmation":
+        nav_after_harvest, nav_after_harvest_and_enter = decode(["uint256", "uint256"], raw)
+        return SuccessDepositConfirmation(
+            nav_after_harvest=nav_after_harvest,
+            nav_after_harvest_and_enter=nav_after_harvest_and_enter,
+        )
 
+    def __init__(self, nav_after_harvest: int, nav_after_harvest_and_enter: int):
+        self.nav_after_harvest = nav_after_harvest
+        self.nav_after_harvest_and_enter = nav_after_harvest_and_enter
 
 class WithdrawalRequest(Message):
     shares_for_withdrawal: int
@@ -49,10 +66,12 @@ class WithdrawalRequest(Message):
         self.total_shares = total_shares
 
 class WithdrawalResponse:
-    notion_growth: int
+    nav_after_harvest: int
+    nav_after_harvest_and_enter: int
 
-    def __init__(self, notion_growth: int):
-        self.notion_growth = notion_growth
+    def __init__(self, nav_after_harvest: int, nav_after_harvest_and_enter: int):
+        self.nav_after_harvest = nav_after_harvest
+        self.nav_after_harvest_and_enter = nav_after_harvest_and_enter
 
 
 # Position
@@ -124,9 +143,10 @@ class PendingDepositBatch:
     :notion_token_remainder: amount of notion tokens returned from container if enter failed
     """
     id: int = 0
-    nav_growth: int = 0
     notion_token_remainder: int = 0
     batch_nav: int = 0
+    nav_after_harvest: int = 0
+    nav_after_harvest_and_enter: int = 0
     processed_containers: list = []
 
 class WithdrawalBatch:
@@ -161,7 +181,7 @@ class ERC20(Generic[Address]):
     address: Address
     name: str
 
-    def __init__(self, address: Address, name: str):
+    def __init__(self, address: Address, name: str = ""):
         self.address = address
         self.name = name
 

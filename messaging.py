@@ -2,8 +2,10 @@ from datastructures import Message
 
 
 class Messaging:
+    last_message: Message
+
     def send_message(self, message: Message) -> None:
-        ...
+        self.last_message = message
 
 class LayerZero(Messaging):
     def lzReceive(self, message: bytes):
